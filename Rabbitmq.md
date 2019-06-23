@@ -1,4 +1,4 @@
-#Rabbitmq
+# Rabbitmq
 
 [TOC]
 
@@ -78,6 +78,8 @@ $ rabbitmqctl set_permissions [-p <vhost>] <user> <conf> <write> <read>
 
 ## 基本用法
 
+`pika == 0.12.0`
+
 生产者：
 
 ```python
@@ -124,7 +126,8 @@ connection_param = pika.ConnectionParameters(
 )
 connection = pika.BlockingConnection(connection_param)
 channel = connection.channel()
-
+# exclusive = True 表示队列只能在当前连接中被访问
+# auto_delete = True 表示队列是临时队列，connection关闭的时候这个队列会被删除
 queue = channel.queue_declare(exclusive=True, auto_delete=True)
 queue_name = queue.method.queue
 channel.queue_bind(exchange='test_fanout', queue=queue_name)
@@ -141,4 +144,40 @@ connection.close()
 ```
 
 ## 进阶
+
+### 持久化
+
+#### 队列持久化
+
+持久化的队列会存储在磁盘里，当消息代理重启的时候依然存在，持久化的队列不会使得消息持久化，当消息代理重启时持久化过的队列会被重新声明，但是消息不会重新恢复。
+
+```python
+channel.queue_declare(queue='durable_queue', durable=True)
+```
+
+生产者和消费者必须同时声明持久化队列，不然消费者会报错。
+
+#### 消息持久化
+
+```python
+channel.basic_publish(exchange='', 
+                      routing_key='', 
+                      body='hello world', 
+                      properties=pika.BasicProperties(delivery_mode=2))
+```
+
+delivery_mode = 2 声明了消息持久化的属性
+
+### 消息确认
+
+消息代理有两种删除消息的方式：
+
+- 当消息代理把消息发送给消费者后立刻删除。
+- 当消息代理发送完消息后，等待消费者回发一个消息确认后再删除消息。如果接收到消息的消费者未发送消息确认的情况下挂掉，消息代理会把消息重新投递给另外一个消费者，如果没有可用消费者，消息代理会死等下一个注册到该队列的消费者再投递消息。
+
+```python
+channel.basic_consume(consumer_callback=callback, queue='test_queue', no_ack=True)
+```
+
+`no_ack` 默认为`False`。
 
