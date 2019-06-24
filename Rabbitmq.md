@@ -181,3 +181,17 @@ channel.basic_consume(consumer_callback=callback, queue='test_queue', no_ack=Tru
 
 `no_ack` 默认为`False`。
 
+### 一些问题
+
+1. `error(-1, "ConnectionResetError(104, 'Connection reset by peer')")`
+
+原因：长时间没有数据来往服务断开了连接。
+
+处理：`heartbeat=600`，`heartbeat`并不是心跳发送的间隔，而是这么长时间没有与服务端通信则断开连接，在这个问题上可以尝试把`heartbeat`值调高。
+
+或者在每次发布消息前先判断连接状态：
+
+```python
+if connection.is_closed or channel.is_closed:
+    reset_conn_and_channel()
+```
