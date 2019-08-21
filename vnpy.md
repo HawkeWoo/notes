@@ -30,7 +30,8 @@ $ pip install numpy
 $ pip install --pre --extra-index-url https://rquser:ricequant99@py.ricequant.com/simple/ rqdatac
 $ pip install ta-lib
 $ pip install https://vnpy-pip.oss-cn-shanghai.aliyuncs.com/colletion/ibapi-9.75.1-py3-none-any.whl
-$ sudo yum install postgresql-devel
+# Error: pg_config executable not found.安装下面(mac: brew install postgresql)
+$ sudo yum install postgresql-devel	
 $ pip install -r requirements.txt
 ```
 
@@ -67,3 +68,4 @@ $ scl enable devtoolset-7 bash
 ```
 
 最后再次安装vnpy模块就可以了！
+
