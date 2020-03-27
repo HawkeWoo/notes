@@ -14,11 +14,17 @@ AMQP是一种网络协议，可以让支持该协议的客户端和消息代理�
 graph LR
 		A[Publisher] -->|Publish| B(Exchange)
 		subgraph message broker
-    B -->|Routes| C(Queue)
+ 		B -->|Routes| D[Queue1]
+    B -->|Routes| E[Queue2]
     end
-    C -->|Consumes| D[Consumer]
-
+    D --> F[Consumer1]
+    D --> G[Consumer2]
+    E --> H[Consumer3]
+    E --> I[Consumer4]
+    E --> J[Consumer5]
 ```
+
+
 
 ### Exchange
 
@@ -39,21 +45,9 @@ Rabbitmq提供了四种Exchange type：
 - **fonout**：消息转发的时候会忽略`routing key`，直接把消息投递到所有和Exchange绑定的Queue中，如果Exchange没有和任何Queue绑定，则消息会被丢弃。
 - **headers**：这种类型的Exchange适用于当消息的路由操作涉及多个属性的时候，相比于`routing key`，headers exchange使用多个消息属性来建立路由规则，Exchange需要考虑某条消息是需要部分匹配还是全部匹配这些消息属性，并与该Exchange所有绑定的Queue中的消息属性进行匹配，如果匹配上了，则发送到该Queue中。
 
-
-
-```mermaid
-graph LR
-		A[Publisher] -->B(Exchange)
-    B --> D[Queue1]
-    B --> E[Queue2]
- 
-```
-
-
-
 ### Consumer
 
-Rabbitmq采用的是Round Robin的轮询调度算法，也就是说不会因为某个消费者消费能力强就消费更多的消息，而是你一个我一个地轮流给消费者分发消息。
+Rabbitmq采用的是Round Robin的轮询调度算法，也就是说不会因为某个消费者消费能力强就消费更多的消息，而是你一个我一个地轮流给消费者分发消息。Consumer和Producer都try to create the queue。
 
 ### VHost
 
@@ -61,7 +55,9 @@ Rabbitmq采用的是Round Robin的轮询调度算法，也就是说不会因为�
 
 vhost之间是相互独立的，这避免了各种命名的冲突，就像App中的沙盒的概念一样，每个沙盒是相互独立的，且只能访问自己的沙盒，以保证非法访问别的沙盒带来的安全隐患。
 
+### Channel
 
+channel 是真实 TCP 连接之上的虚拟连接，每条TCP连接上的信道数量没有限制，所有 AMQP 命令都是通过 channel 发送的，且每一个 channel 有唯一的 ID 。
 
 
 ## 安装
@@ -99,9 +95,7 @@ $ rabbitmqctl set_permissions [-p <vhost>] <user> <conf> <write> <read>
 
 ```python
 import time
-
 import pika
-
 
 credentials = pika.PlainCredentials('test', 'test1234')
 # virtual_host 指明了客户端要使用哪个虚拟环境，虚拟环境为消息代理实现了多个隔离的环境。
@@ -340,7 +334,7 @@ def _basic_publish(self, msg, exchange='', routing_key='',
 
 1. 队列持久化:定义队列时，设置队列的durable=True。服务重启后，队列不会丢失。
 
-2. 交换器持久化:定义交换器时，设置durable=True。服务重启后，交换器元数据不会丢失。
+2. 交换器持久化:定义交换器时，设置durable=True。服务重启后，交换器元数据不会丢失，但是里面不保存消息。
 
 3. 消息持久化: 将投递模式设置为2即可。服务重启后，队列里的消息不会丢失。
 
@@ -348,22 +342,23 @@ def _basic_publish(self, msg, exchange='', routing_key='',
 
 ​	设置 镜像队列
 
+
+
 ### 消费者
 
 当消费者接收到消息后发生异常，没有正常消费消息
 
-设置autoAck=False,关闭自动ack, 真正处理完成后，手动发送完成确认。如果没有ack确认 且当前消费者链接断开，任务会重新进入队列。
+设置autoAck=False，关闭自动ack，真正处理完成后，手动发送完成确认。如果没有ack确认 且当前消费者链接断开，任务会重新进入队列。
 
 自动ack还有个弊端，只要队列不空，RabbitMQ会源源不断的把消息推送给客户端，而不管客户端能否消费的完
 
 ```python
 def callback(ch, method, properties, body):
-
     try:
         print(f"msg:{body}")
     except Exception as e:
         print(e)
-    finally:
+    else:
         ch.basic_ack(delivery_tag=method.delivery_tag) # 手动 发送 真正任务完成 发送ack确认 如果没有ack确认 且当前消费者链接断开，任务会重新进入队列
 
 channel.basic_consume(on_message_callback=callback, queue='queue', auto_ack=False) # 关闭auto_ack
@@ -394,9 +389,154 @@ channel.basic_consume(on_message_callback=callback, queue='queue', auto_ack=Fals
 
 
 
+## 避免消息重复投递或重复消费
+
+**消息投递**
+
+MQ内部针对每条生产者发送的消息生成一个inner-msg-id，作为去重和幂等的依据（消息投递失败并重传），避免重复的消息进入队列；或者重复投递没关系，只要保证我消费者端不重复消费就可以。
+
+**消息消费**
+
+要求消息体中必须要有一个bizId（对于同一业务全局唯一，如支付ID、订单ID、帖子ID等）作为去重和幂等的依据，避免同一条消息被重复消费。
+
+1. 你拿到这个消息做数据库的insert操作。那就容易了，给这个消息做一个唯一主键，那么就算出现重复消费的情况，就会导致主键冲突，避免数据库出现脏数据。
+2. 再比如，你拿到这个消息做redis的set的操作，那就容易了，不用解决，因为你无论set几次结果都是一样的，set操作本来就算幂等操作。
+   
+
 ## 集群
 
+### 概况
 
+RabbitMQ的集群是由多个节点组成的，但不是每个节点都有所有队列的完全拷贝。
+
+有两个原因：
+
+1. 存储空间——如果每个节点都拥有所有队列的完全拷贝，这样新增节点不但没有新增存储空间，反而增加了更多的冗余数据。
+2. 性能——如果消息的发布需安全拷贝到每一个集群节点，那么新增节点对网络和磁盘负载都会有增加，这样违背了建立集群的初衷，新增节点并没有提升处理消息的能力，最多是保持和单节点相同的性能甚至是更糟。
+
+所以其他非所有者节点只知道队列的元数据，和指向该队列节点的指针。
+
+节点的存储类型分为两种：
+
+- 磁盘节点
+- 内存节点
+
+磁盘节点就是配置信息和元信息存储在磁盘上，内次节点把这些信息存储在内存中，当然内次节点的性能是大大超越磁盘节点的。
+
+**单节点系统必须是磁盘节点**，否则每次你重启RabbitMQ之后所有的系统配置信息都会丢失。
+
+**RabbitMQ要求集群中至少有一个磁盘节点**，为了避免异常出现，最好是两个磁盘节点。当节点加入和离开集群时，必须通知磁盘节点。如果唯一磁盘的磁盘节点崩溃，集群是可以保持运行的，但你不能更改任何东西。因为其他节点保存了queue，exchange等元数据，
+
+**集群重启的顺序是固定的，并且是相反的。** 如下所述：
+
+- 启动顺序：磁盘节点 => 内存节点
+- 关闭顺序：内存节点 => 磁盘节点
+
+**最后关闭必须是磁盘节点**，不然可能回造成集群启动失败、数据丢失等异常情况。
+
+### 新增节点
+
+节点加入集群流程如下：
+
+（1）新增节点先从 gm_group 中获取对应 group 成员信息；
+
+（2）随机选择一个节点并向这个节点发送加入请求；
+
+（3）集群节点收到新增节点请求后，更新 gm_group 对应信息，同时更新左右节点更新邻居信息（调整对左右节点的监控）；
+
+（4）集群节点回复通知新增节点成功加入 group；
+
+（5）新增节点收到回复后更新 rabbit_queue 中的相关信息，同时根据策略同步消息。
+
+### 删除节点
+
+当 Slave 节点失效时，仅仅是相邻节点感知，然后重新调整邻居节点信息，更新 rabbit_queue, gm_group的记录。
+
+当 Master 节点失效时流程如下：
+
+（1）由于所有 mirror_queue_slave进程会对 amqqueue_process 进程监控，如果 Master 节点失效，mirror_queue_slave感知后通过 GM 进行广播；
+
+（2）存活最久的 Slave 节点会提升自己为 master 节点；
+
+（3）该节点会创建出新的 coordinator，并通知 GM 进程修改回调处理器为 coordinator；
+
+（4）原来的 mirror_queue_slave 作为 amqqueue_process 处理生产发布的消息，向消费者投递消息。
+
+### 镜像队列
+
+引入镜像队列（Mirror Queue）的机制，可以将队列镜像到集群中的其他 Broker 节点之上，如果集群中的一个节点失效了，**队列能够自动切换到镜像中的另一个节点上以保证服务的可用性**。
+
+对每个队列的（以下简称镜像队列）都包含一个主节点（master）和若干个从节点（slave）。slave 会准确地按照 maste 执行命令地顺序进行动作，故 slave 和 master 上维护的状态应该是相同的。如果 master 由于某种原因失效，那么“**资历最老**”（根基于 slave 加入 cluster 的时间排序）的 slave 会被提升为新的 master。**新的master节点requeue所有unack消息**，因为这个新节点无法区分这些unack消息是否已经到达客户端，亦或是ack消息丢失在老的master的链路上，亦或者是丢在master组播ack消息到所有slave的链路上。所以处于消息可靠性的考虑，requeue所有unack的消息。此时客户端可能有重复消息。
+
+如果消费者与 slave 建立连接并进行订阅消费，其实质都是从 master 上获取消息，只不过看似是从 slave 上消费而已。比如消费者与 slave 建立了 TCP 连接之后执行一个 Basic.Get 操作，那么首先是由  slave 将Basic.Get 请求发往 master，再由 **master 准备好数据返回给 slave**，最后由 slave 投递给消费者。
+
+镜像队列的配置主要是通过添加相应的 Policy 来完成的，对于镜像队列的配置来说，definition 中需要包含 3 个部分：`ha-mode`、`ha-params`、`ha-sync-mode`
+
+- `ha-mode`：指明镜像队列的模式，有效值为all 、exactly 、nodes ，默认为all 。all 表示在集群中所有的节点上进行镜像; exactly 表示在指定个数的节点上进行镜像，节点个数由ha - params 指定; nodes 表示在指定节点上进行镜像，节点名称通过 ha-params 指定，节点的名称通常类似于 rabbit@hostname ，可以通过`rabbitmqctl cluster status` 命令查看到。
+- `ha-params`：不同的 `ha-mode` 配置中需要用到的参数。
+- `ha-sync-mode`：队列中消息的同步方式，有效值为 automatic 和 manually（默认）。
+
+**manually**：新节点加入到镜像队列组后，可以从左节点获取当前正在广播的消息，但是在加入之前已经广播的消息无法获取，所以会处于镜像队列之间数据不一致的情况，在加入之前的消息都被消费后，主从镜像队列数据保持一致。当加入之前的消息未全部消费完之前，主节点宕机，新节点选为主节点时，这部分消息将丢失。
+
+**automatic**：新加入组群的 Slave 节点会自动进行消息同步，使主从镜像队列数据保持一致。
+
+镜像队列中每个进程会创建一个 gm（guaranteed multicast）进程，镜像队列中所有 gm 进程会组成一个进程组用于广播和接收消息。
+
+镜像队列 gm 组通过将所有 gm 进程形成一个循环链表，每个 gm 都会监控位于自己左右两边的 gm，当有 gm 新增时，相邻的 gm 保证当前广播的消息会通知到新的 gm 上；当有 gm 失效时，相邻的 gm 会接管保证本次广播消息会通知到所有 gm。
+
+ gm 组信息会记录在本地数据库（mnesia）中，不同的镜像队列行程的 gm 组也是不同的。
+
+消息从 master 队列对应的 gm 发出后，顺着链表依次传送到所有 gm 进程，由于所有 gm 进程组成一个循环链表，master 队列的 gm 线程最终会收到自己发送的消息，这个时候 master 队列就知道消息已经复制到所有 slave 队列了。
+
+**消息广播流程**如下：
+
+（1）Master 节点发出消息，顺着镜像队列循环列表发送；
+
+（2）所有 Slave 节点收到消息会对消息进行缓存（Slave 节点缓存消息用于在广播过程中，有节点失效或者新增节点，这样左侧节点感知变化后会重新将消息推送给右侧节点）；
+
+（3）当 Master 节点收到自己发送的消息后意味着所有节点都收到了消息，会再次广播 Ack 消息；
+
+（4）Ack 消息同样会顺着循环列表经过所有 Slave 节点，通知 Slave 节点可以清除缓存消息；
+
+（5）当 Ack 消息回到 Master 节点，对应消息的广播结束。
+
+
+
+## 与Redis对比
+
+**可靠性**
+
+redis ：没有相应的机制保证消息的可靠消费，如果发布者发布一条消息，而没有对应的订阅者的话，这条消息将丢失，不会存在内存中；
+rabbitmq：具有消息消费确认机制，如果发布一条消息，还没有消费者消费该队列，那么这条消息将一直存放在队列中，直到有消费者消费了该条消息，以此可以保证消息的可靠消费；
+
+**实时性**
+
+redis:实时性高，redis作为高效的缓存服务器，所有数据都存在在服务器中，所以它具有更高的实时性
+
+**消费者负载均衡**
+
+rabbitmq队列可以被多个消费者同时监控消费，但是每一条消息只能被消费一次，由于rabbitmq的消费确认机制，因此它能够根据消费者的消费能力而调整它的负载；
+redis发布订阅模式，一个队列可以被多个消费者同时订阅，当有消息到达时，会将该消息依次发送给每个订阅者；
+
+**持久性**
+
+redis：redis的持久化是针对于整个redis缓存的内容，它有RDB和AOF两种持久化方式（redis持久化方式，后续更新），可以将整个redis实例持久化到磁盘，以此来做数据备份，防止异常情况下导致数据丢失。
+rabbitmq：队列，消息都可以选择性持久化，持久化粒度更小，更灵活；
+
+**队列监控**
+
+rabbitmq实现了后台监控平台，可以在该平台上看到所有创建的队列的详细情况，良好的后台管理平台可以方面我们更好的使用；
+redis没有所谓的监控平台。
+
+**事务**
+
+rabbitmq支持事务，redis不支持事务
+
+**总结**
+
+redis：    轻量级，低延迟，高并发，低可靠性；
+rabbitmq：重量级，高可靠，异步，不保证实时；
+rabbitmq是一个专门的AMQP协议队列，他的优势就在于提供可靠的队列服务，并且可做到异步，而redis主要是用于缓存的，redis的发布订阅模块，可用于实现及时性，且可靠性低的功能。
 
 
 
@@ -422,4 +562,6 @@ channel.basic_consume(on_message_callback=callback, queue='queue', auto_ack=Fals
    原因：celery上配置了任务超时时间，超时了就把消费者worker kill了
 
    处理：改用task_soft_time_limit并捕获SoftTimeLimitExceeded异常。
+
+
 
