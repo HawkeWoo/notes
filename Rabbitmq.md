@@ -540,7 +540,7 @@ rabbitmq是一个专门的AMQP协议队列，他的优势就在于提供可靠�
 
 
 
-##一些问题
+## 一些问题
 
 1. `error(-1, "ConnectionResetError(104, 'Connection reset by peer')")`
 
