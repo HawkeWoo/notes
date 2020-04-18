@@ -270,7 +270,7 @@ leader broker上保存了一套follower副本的LEO以及它自己的LEO。当�
 3. 交互流程。
 4. reblance的流程。
 
-### 消费者leader选举
+#### 消费者leader选举
 
 组协调器GroupCoordinator需要为消费组内的消费者选举出一个消费组的leader，这个选举的算法也很简单，分两种情况分析。如果消费组内还没有leader，那么第一个加入消费组的消费者即为消费组的leader。如果某一时刻leader消费者由于某些原因退出了消费组，那么会重新选举一个新的leader，这个重新选举leader的过程又更“随意”了，相关代码如下：
 
