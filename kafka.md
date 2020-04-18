@@ -278,7 +278,6 @@ leader broker上保存了一套follower副本的LEO以及它自己的LEO。当�
 //scala code.
 private val members = new mutable.HashMap[String, MemberMetadata]
 var leaderId = members.keys.head
-复制代码
 ```
 
 解释一下这2行代码：在GroupCoordinator中消费者的信息是以HashMap的形式存储的，其中key为消费者的member_id，而value是消费者相关的元数据信息。leaderId表示leader消费者的member_id，它的取值为HashMap中的第一个键值对的key，这种选举的方式基本上和随机无异。总体上来说，消费组的leader选举过程是很随意的。
