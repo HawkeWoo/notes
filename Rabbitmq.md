@@ -168,7 +168,7 @@ channel.basic_consume
 
 channel.basic_get。broker端不会在client端没有请求的情况下来回传消息。
 
-不可以通过循环调用basic_get来代替basic.consume，因为basic_get是主动去broker请求才会有数据返回，如果是高吞吐率的消费者，最好还是建议使用basic.consume。
+不可以通过循环调用basic_get来代替basic.consume，因为basic_get是主动去broker请求才会有数据返回，即每次调用都需要建立连接，然后获取数据，断开连接。如果是高吞吐率的消费者，最好还是建议使用basic.consume。
 
 
 
@@ -226,6 +226,12 @@ channel.queue_bind(queue="alert",
 
 
 ##持久化
+
+### exchange持久化
+
+```python
+channel.exchange_declare(exchange='durable_exchange', durable=True)
+```
 
 ### 队列持久化
 
@@ -350,7 +356,7 @@ def _basic_publish(self, msg, exchange='', routing_key='',
 
 设置autoAck=False，关闭自动ack，真正处理完成后，手动发送完成确认。如果没有ack确认 且当前消费者链接断开，任务会重新进入队列。
 
-自动ack还有个弊端，只要队列不空，RabbitMQ会源源不断的把消息推送给客户端，而不管客户端能否消费的完
+**自动ack有个弊端**，只要队列不空，RabbitMQ会源源不断的把消息推送给客户端，而不管客户端能否消费的完
 
 ```python
 def callback(ch, method, properties, body):
@@ -366,7 +372,7 @@ channel.basic_consume(on_message_callback=callback, queue='queue', auto_ack=Fals
 但是如果callback触发了一个bug，导致所有消息都抛出异常，然后队列的Unacked消息数暴涨，导致MQ响应越来越慢，甚至崩溃的问题。
 原因是如果MQ没得到ack响应，这些消息会堆积在Unacked消息里，不会抛弃，直至客户端断开重连时，才变回ready；
 如果Consumer客户端不断开连接，这些Unacked消息，永远不会变回ready状态，Unacked消息多了，占用内存越来越大，就会异常了。
-这时就需要`channel.basic_nack`方法了，这个方法解决了消费异常情况下该条消息怎么处理，有两种办法：第一，这条消息重新放回队列重新消费，第二，抛弃此条消息。
+这时就需要`channel.basic_nack`方法了，这个方法指明了**消费异常情况下该条消息怎么处理**，有两种办法：第一，这条消息重新放回队列重新消费，第二，抛弃此条消息。
 
 ```python
 def callback(ch, method, properties, body):  
@@ -385,7 +391,7 @@ channel.basic_consume(on_message_callback=callback, queue='queue', auto_ack=Fals
 ```
 如果消息本身有问题，消费者抛出异常后把该消息重新发回队列中，队列又把该消息发回消费者，继续抛异常继续发回队列，就出现死循环的情况。
 
-解决方法：开启死信队列 并设置`basic_nack`/`basic_reject`的requeue=False。这时当消息被拒绝或者nack时会被送入死信队列。消息过期，nack,reject,队列最大长度 这些情况，如果开启了死信队列，消息都会进入死信队列）。分析死信队列上的异常情况可以用来改善和优化系统。
+解决方法：开启死信队列，并设置`basic_nack`/`basic_reject`的requeue=False。这时当消息被拒绝或者nack时会被送入死信队列。消息过期，nack,reject,队列最大长度 这些情况，如果开启了死信队列，消息都会进入死信队列）。分析死信队列上的异常情况可以用来改善和优化系统。
 
 
 
@@ -401,7 +407,7 @@ MQ内部针对每条生产者发送的消息生成一个inner-msg-id，作为去
 
 1. 你拿到这个消息做数据库的insert操作。那就容易了，给这个消息做一个唯一主键，那么就算出现重复消费的情况，就会导致主键冲突，避免数据库出现脏数据。
 2. 再比如，你拿到这个消息做redis的set的操作，那就容易了，不用解决，因为你无论set几次结果都是一样的，set操作本来就算幂等操作。
-   
+  
 
 ## 集群
 
@@ -456,7 +462,7 @@ RabbitMQ的集群是由多个节点组成的，但不是每个节点都有所有
 
 （1）由于所有 mirror_queue_slave进程会对 amqqueue_process 进程监控，如果 Master 节点失效，mirror_queue_slave感知后通过 GM 进行广播；
 
-（2）存活最久的 Slave 节点会提升自己为 master 节点；
+（2）**存活最久的 Slave 节点**会提升自己为 master 节点；
 
 （3）该节点会创建出新的 coordinator，并通知 GM 进程修改回调处理器为 coordinator；
 
@@ -472,7 +478,7 @@ RabbitMQ的集群是由多个节点组成的，但不是每个节点都有所有
 
 镜像队列的配置主要是通过添加相应的 Policy 来完成的，对于镜像队列的配置来说，definition 中需要包含 3 个部分：`ha-mode`、`ha-params`、`ha-sync-mode`
 
-- `ha-mode`：指明镜像队列的模式，有效值为all 、exactly 、nodes ，默认为all 。all 表示在集群中所有的节点上进行镜像; exactly 表示在指定个数的节点上进行镜像，节点个数由ha - params 指定; nodes 表示在指定节点上进行镜像，节点名称通过 ha-params 指定，节点的名称通常类似于 rabbit@hostname ，可以通过`rabbitmqctl cluster status` 命令查看到。
+- `ha-mode`：指明镜像队列的模式，有效值为all 、exactly 、nodes ，默认为all 。all 表示在集群中所有的节点上进行镜像；exactly 表示在指定个数的节点上进行镜像，节点个数由ha - params 指定； nodes 表示在指定节点上进行镜像，节点名称通过 ha-params 指定，节点的名称通常类似于 rabbit@hostname ，可以通过`rabbitmqctl cluster status` 命令查看到。
 - `ha-params`：不同的 `ha-mode` 配置中需要用到的参数。
 - `ha-sync-mode`：队列中消息的同步方式，有效值为 automatic 和 manually（默认）。
 
@@ -515,7 +521,7 @@ redis:实时性高，redis作为高效的缓存服务器，所有数据都存在
 
 **消费者负载均衡**
 
-rabbitmq队列可以被多个消费者同时监控消费，但是每一条消息只能被消费一次，由于rabbitmq的消费确认机制，因此它能够根据消费者的消费能力而调整它的负载；
+rabbitmq**队列**可以被多个消费者同时监控消费，但是每一条消息只能被消费一次，由于rabbitmq的消费确认机制，因此它能够根据消费者的消费能力而调整它的负载；
 redis发布订阅模式，一个队列可以被多个消费者同时订阅，当有消息到达时，会将该消息依次发送给每个订阅者；
 
 **持久性**
