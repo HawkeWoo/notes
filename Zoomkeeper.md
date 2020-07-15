@@ -6,6 +6,11 @@
 
 
 
+PERSISTENT	持久化节点
+PERSISTENT_SEQUENTIAL	顺序自动编号持久化节点，这种节点会根据当前已存在的节点数自动加 1
+EPHEMERAL	临时节点， 客户端session超时这类节点就会被自动删除
+EPHEMERAL_SEQUENTIAL	临时自动编号节点
+
 ## 崩溃恢复
 
 ZAB协议会让ZK集群进入崩溃恢复模式的情况如下：
