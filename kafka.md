@@ -198,7 +198,7 @@ partition的分配
 
 Kafka结合同步复制和异步复制，使用ISR（与Partition Leader保持同步的Replica列表）的方式在确保数据不丢失和吞吐率之间做了平衡。Producer只需把消息发送到Partition Leader，Leader将消息写入本地Log。Follower则从Leader pull数据。Follower在收到该消息向Leader发送ACK。一旦Leader收到了ISR中所有Replica的ACK，该消息就被认为已经commit了，Leader将增加HW并且向Producer发送ACK。这样如果leader挂了，只要Isr中有一个replica存活，就不会丢数据。
 
-Leader会跟踪ISR，如果ISR中一个Follower宕机，或者落后太多，Leader将把它从ISR中移除。这里所描述的“落后太多”指Follower复制的消息落后于Leader后的条数超过预定值（replica.lag.max.messages）或者Follower超过一定时间（replica.lag.time.max.ms）未向Leader发送fetch请求。
+Leader会跟踪ISR，如果ISR中一个Follower宕机，或者落后太多，Leader将把它从ISR中移除。这里所描述的“落后太多”指Follower超过一定时间（replica.lag.time.max.ms）未向Leader发送fetch请求。
 
 Producer在发布消息到某个Partition时，先通过ZooKeeper找到该Partition的Leader，然后无论该Topic的Replication Factor为多少，Producer只将该消息发送到该Partition的Leader。Leader会将该消息写入其本地Log。每个Follower都从Leader pull数据。这种方式上，Follower存储的数据顺序与Leader保持一致。Follower在收到该消息并写入其Log后，向Leader发送ACK。一旦Leader收到了ISR中的所有Replica的ACK，该消息就被认为已经commit了，Leader将增加HW并且向Producer发送ACK。
 
@@ -215,7 +215,7 @@ Kafka分区下有可能有很多个副本(replica)用于实现冗余，从而进
 - LEO：即日志末端位移(log end offset)，记录了该副本底层日志(log)中下一条消息的位移值。注意是下一条消息！也就是说，如果LEO=10，那么表示该副本保存了10条消息，位移值范围是[0, 9]。另外，leader LEO和follower LEO的更新是有区别的。我们后面会详细说
 - HW：即上面提到的水位值。对于同一个副本对象而言，其HW值不会大于LEO值。小于等于HW值的所有消息都被认为是“已备份”的（replicated）。
 
-### LEO 和 HW
+### LEO, HW, leader epoch
 
 Kafka分区下有可能有很多个副本(replica)用于实现冗余，从而进一步实现高可用。副本根据角色的不同可分为3类：
 
@@ -240,7 +240,7 @@ follower副本端的LEO值就是其底层日志的LEO值，也就是说每当新
 
 **2 leader副本端的follower副本LEO何时更新？**
 
-leader副本端的follower副本LEO的更新发生在leader在处理follower FETCH请求时。一旦leader接收到follower发送的FETCH请求，它首先会从自己的log中读取相应的数据，但是在给follower返回数据之前它先去更新follower的LEO(即上面所说的第二套LEO)
+leader副本端的follower副本LEO的更新发生在leader在处理follower FETCH请求时。一旦leader接收到follower发送的FETCH请求，它首先会从自己的log中读取相应的数据，但是在给follower返回数据之前它先去更新follower的LEO(上一次？)(即上面所说的第二套LEO)
 
 **二、follower副本何时更新HW？**
 
@@ -252,7 +252,9 @@ follower更新HW发生在其更新LEO之后，一旦follower向log写完数据�
 
 **四、leader副本何时更新HW值？**
 
-leader broker上保存了一套follower副本的LEO以及它自己的LEO。当尝试确定分区HW时，它会选出所有满足条件的副本，比较它们的LEO(当然也包括leader自己的LEO)，并选择最小的LEO值作为HW值。
+收到ISR所有的follow返回的ACK后。leader broker上保存了一套follower副本的LEO以及它自己的LEO。当尝试确定分区HW时，它会选出所有满足条件的副本，比较它们的LEO(当然也包括leader自己的LEO)，并选择最小的LEO值作为HW值。
+
+**leader epoch**
 
 
 
@@ -330,8 +332,7 @@ kafka集群由于默认的__consumer_offsets这个topic的默认的副本数为1
 2. Topic注册
 3. 生产者负载均衡
 4. 消费者负载均衡
-5. 分区 与 消费者 的关系
-6. 消费者注册
+5. 消费者注册
 
 ## 消息投递语义
 
