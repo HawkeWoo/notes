@@ -263,3 +263,127 @@ func main() {
 
 
 ## Sync
+
+#### Once
+
+Once 是一个可以被多次调用但是只执行一次，若每次调用Do时传入参数f不同，但是只有第一个才会被执行。
+
+```go
+func main() {
+   var once sync.Once
+   onceBody := func(){
+      println("Execute Once")
+   }
+   for i:=0; i<10; i++{
+      go func(i int) {
+         println("goroutine ", i)
+         once.Do(onceBody)
+      }(i)
+   }
+   time.Sleep(time.Second)
+   println("done")
+}
+```
+
+#### WaitGroup
+
+wait group 用来等待一组goroutines的结束，在主Goroutine里声明，并且设置要等待的goroutine的个数，每个goroutine执行完成之后调用 Done，最后在主Goroutines 里Wait即可。
+
+```go
+func main() {
+   wg := &sync.WaitGroup{}
+   for i:=0; i<10; i++{
+      wg.Add(1)
+      go func(i int) {
+         defer wg.Done()
+         println("goroutine ", i)
+      }(i)
+   }
+   wg.Wait()
+}
+```
+
+### Mutex
+
+互斥锁
+
+```go
+type Bank struct {
+   sync.Mutex
+   balance map[string] float64
+}
+// 关于锁要不要声明为指针
+// 如果不声明为指针，则在对象拷贝的过程中锁也会被拷贝
+// 如果声明为指针，那对象拷贝之后出现copy2，那么copy2被锁的时候原对象也会被锁住，这种情况下锁不应该声明在结构体内部，如果不想copy2和原对象同时被锁，则锁不能声明为指针
+// 用指针是一种懒惰的行为，自己需要对代码有明确的了解，结构体是否在业务逻辑中会不会被拷贝，
+
+func (bank *Bank) In(account string, value float64){
+   bank.Lock()
+   defer bank.Unlock()
+   if _, ok := bank.balance[account]; !ok{
+      bank.balance[account] = 0.0
+   }
+   bank.balance[account]+=value
+}
+
+
+func (bank *Bank) Out(account string, value float64) error{
+   bank.Lock()
+   defer bank.Unlock()
+   if _, ok := bank.balance[account]; !ok{
+      bank.balance[account] = 0.0
+   }
+   v := bank.balance[account]
+   if v < value{
+      return errors.New("not enough balance")
+   }
+   bank.balance[account] -= value
+   return nil
+}
+```
+
+### RWMutex
+
+读写锁，是`sync.Mutex`的一种变种，RWMutex来自于计算机操作系统非常有名的读者写者问题。
+RWMutex目的是为了能够支持多个并发协程同时读取某一个资源，但只有一个并发协程能够更新资源。也就是说读和写是互斥的，写和写也是互斥的，读和读是不互斥的。
+
+总结起来如下
+
+1. 当有一个协程在读的时候，所有写的协程必须等到所有读的协程结束才可以获得锁进行写操作。
+2. 当有一个协程在读的时候，所有读的协程不受影响都可以进行读操作。
+3. 当有一个协程在写的时候，所有读、写的协程必须等到写的协程结束才可以获得锁进行读、写操作。
+
+### Cond
+
+信号量，指的是同步条件变量，一般需要与互斥锁组合使用，本质上是一些正在等待某个条件的协程的同步机制。
+
+
+
+### Pool
+
+临时对象池
+
+
+
+### Map
+
+带锁的map
+
+
+
+## 方法
+
+1. 结构指针接收者，顾名思义，会在方法内部改变该结构内部变量的值
+2. 结构值接收者，在方法内部对变量的改变不会影响该结构。
+3. 对于指针接收者，如果你调用的是值方法，即使你是指针调用者，也不会改变你的结构内的变量值
+4. 对于值接收者，如果你调用的是指针方法，即使你是值调用者，也会改变你的结构内的变量值
+
+3，4点概括就是说只要方法的接受者是指针，则可以在方法中改变结构体内的变量值
+
+
+
+## 接口
+
+1. 对于指针接受者，如果传入值对象，会panic
+2. 对于值接受者，如果传入指针对象，会自动解引用
+
